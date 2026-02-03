@@ -162,6 +162,161 @@ async function invokeGenericOpenAI(model: AIModel, messages: LLMMessage[]): Prom
 }
 
 /**
+ * 测试AI模型连接
+ */
+export async function testModelConnection(
+  model: AIModel
+): Promise<{ success: boolean; message: string; latency?: number }> {
+  const startTime = Date.now();
+  
+  try {
+    const testMessages: LLMMessage[] = [
+      { role: "user", content: "你好，请回复'OK'以确认连接正常" },
+    ];
+
+    // 根据不同的provider调用不同的API
+    switch (model.provider.toLowerCase()) {
+      case "deepseek":
+        await testDeepSeekConnection(model);
+        break;
+      case "openai":
+        await testOpenAIConnection(model);
+        break;
+      case "anthropic":
+        await testAnthropicConnection(model);
+        break;
+      case "custom":
+      default:
+        await testGenericOpenAIConnection(model);
+        break;
+    }
+
+    const latency = Date.now() - startTime;
+    return {
+      success: true,
+      message: `连接成功，响应时间: ${latency}ms`,
+      latency,
+    };
+  } catch (error) {
+    const latency = Date.now() - startTime;
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : "连接失败",
+      latency,
+    };
+  }
+}
+
+async function testDeepSeekConnection(model: AIModel): Promise<void> {
+  const response = await fetch(model.apiUrl || "https://api.deepseek.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${model.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: model.modelId || "deepseek-chat",
+      messages: [{ role: "user", content: "test" }],
+      max_tokens: 5,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    let errorMsg = "API调用失败";
+    try {
+      const errorJson = JSON.parse(error);
+      errorMsg = errorJson.error?.message || errorJson.message || error;
+    } catch {
+      errorMsg = error;
+    }
+    throw new Error(`DeepSeek: ${errorMsg}`);
+  }
+}
+
+async function testOpenAIConnection(model: AIModel): Promise<void> {
+  const response = await fetch(model.apiUrl || "https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${model.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: model.modelId || "gpt-4",
+      messages: [{ role: "user", content: "test" }],
+      max_tokens: 5,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    let errorMsg = "API调用失败";
+    try {
+      const errorJson = JSON.parse(error);
+      errorMsg = errorJson.error?.message || errorJson.message || error;
+    } catch {
+      errorMsg = error;
+    }
+    throw new Error(`OpenAI: ${errorMsg}`);
+  }
+}
+
+async function testAnthropicConnection(model: AIModel): Promise<void> {
+  const response = await fetch(model.apiUrl || "https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": model.apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: model.modelId || "claude-3-sonnet-20240229",
+      max_tokens: 5,
+      messages: [{ role: "user", content: "test" }],
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    let errorMsg = "API调用失败";
+    try {
+      const errorJson = JSON.parse(error);
+      errorMsg = errorJson.error?.message || errorJson.message || error;
+    } catch {
+      errorMsg = error;
+    }
+    throw new Error(`Anthropic: ${errorMsg}`);
+  }
+}
+
+async function testGenericOpenAIConnection(model: AIModel): Promise<void> {
+  const response = await fetch(model.apiUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${model.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: model.modelId,
+      messages: [{ role: "user", content: "test" }],
+      max_tokens: 5,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    let errorMsg = "API调用失败";
+    try {
+      const errorJson = JSON.parse(error);
+      errorMsg = errorJson.error?.message || errorJson.message || error;
+    } catch {
+      errorMsg = error;
+    }
+    throw new Error(errorMsg);
+  }
+}
+
+/**
  * 使用自定义模型生成测试用例
  */
 export async function generateTestCasesWithCustomModel(

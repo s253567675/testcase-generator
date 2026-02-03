@@ -57,7 +57,7 @@ import {
   generateTestCasesWithCustomTemplate,
   generateTestCasesWithTemplate,
 } from "./testCaseGenerator";
-import { generateTestCasesWithCustomModel } from "./customLLM";
+import { generateTestCasesWithCustomModel, testModelConnection } from "./customLLM";
 
 // 确保默认管理员存在
 ensureAdminUser();
@@ -755,6 +755,19 @@ export const appRouter = router({
         apiKey: model.apiKey.substring(0, 8) + "..." + model.apiKey.substring(model.apiKey.length - 4),
       };
     }),
+    testConnection: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const model = await getAIModelById(input.id);
+        if (!model) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "模型不存在" });
+        }
+        if (ctx.user.role !== "admin" && model.userId !== ctx.user.id && model.isSystem !== 1) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "无权测试此模型" });
+        }
+        const result = await testModelConnection(model);
+        return result;
+      }),
   }),
 
   stats: router({

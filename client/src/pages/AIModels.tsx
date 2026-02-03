@@ -38,7 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
-import { Bot, Check, Edit, Loader2, Plus, Star, Trash2 } from "lucide-react";
+import { Bot, Check, CheckCircle2, Edit, Loader2, Play, Plus, Star, Trash2, XCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -63,6 +63,8 @@ export default function AIModels() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<any>(null);
+  const [testingModelId, setTestingModelId] = useState<number | null>(null);
+  const [testResults, setTestResults] = useState<Record<number, { success: boolean; message: string }>>({});
   const [formData, setFormData] = useState<ModelFormData>({
     name: "",
     provider: "deepseek",
@@ -121,6 +123,40 @@ export default function AIModels() {
       toast.error(error.message || "设置失败");
     },
   });
+
+  const testConnectionMutation = trpc.aiModel.testConnection.useMutation({
+    onSuccess: (result, variables) => {
+      setTestResults((prev) => ({
+        ...prev,
+        [variables.id]: { success: result.success, message: result.message },
+      }));
+      if (result.success) {
+        toast.success(result.message);
+      } else {
+        toast.error(result.message);
+      }
+      setTestingModelId(null);
+    },
+    onError: (error, variables) => {
+      setTestResults((prev) => ({
+        ...prev,
+        [variables.id]: { success: false, message: error.message || "测试失败" },
+      }));
+      toast.error(error.message || "测试失败");
+      setTestingModelId(null);
+    },
+  });
+
+  const handleTestConnection = (modelId: number) => {
+    setTestingModelId(modelId);
+    // 清除之前的测试结果
+    setTestResults((prev) => {
+      const newResults = { ...prev };
+      delete newResults[modelId];
+      return newResults;
+    });
+    testConnectionMutation.mutate({ id: modelId });
+  };
 
   const resetForm = () => {
     setFormData({
@@ -186,6 +222,27 @@ export default function AIModels() {
   const getProviderLabel = (provider: string) => {
     const config = defaultProviders.find((p) => p.value === provider);
     return config?.label || provider;
+  };
+
+  const getTestStatusBadge = (modelId: number) => {
+    const result = testResults[modelId];
+    if (!result) return null;
+    
+    if (result.success) {
+      return (
+        <Badge variant="outline" className="bg-green-100 text-green-700 border-green-200 ml-2">
+          <CheckCircle2 className="h-3 w-3 mr-1" />
+          连接正常
+        </Badge>
+      );
+    } else {
+      return (
+        <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200 ml-2" title={result.message}>
+          <XCircle className="h-3 w-3 mr-1" />
+          连接失败
+        </Badge>
+      );
+    }
   };
 
   return (
@@ -260,7 +317,7 @@ export default function AIModels() {
                     <TableHead className="w-[180px]">模型ID</TableHead>
                     <TableHead>API地址</TableHead>
                     <TableHead className="w-[100px]">状态</TableHead>
-                    <TableHead className="w-[150px]">操作</TableHead>
+                    <TableHead className="w-[200px]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -272,6 +329,7 @@ export default function AIModels() {
                           {model.isDefault === 1 && (
                             <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
                           )}
+                          {getTestStatusBadge(model.id)}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -292,6 +350,20 @@ export default function AIModels() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleTestConnection(model.id)}
+                            disabled={testingModelId === model.id}
+                            title="测试连接"
+                          >
+                            {testingModelId === model.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Play className="h-4 w-4" />
+                            )}
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
