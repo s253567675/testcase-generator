@@ -50,15 +50,18 @@ import {
   Clock,
   Download,
   Edit,
+  FileSpreadsheet,
   FileText,
   Filter,
+  FolderOpen,
   Loader2,
   MoreHorizontal,
   Search,
   Trash2,
+  Upload,
   XCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 type TestCase = {
@@ -74,7 +77,13 @@ type TestCase = {
   executionStatus: "pending" | "passed" | "failed";
   executionResult: string | null;
   generationMode: "ai" | "template" | "import";
+  documentId: number | null;
   createdAt: Date;
+};
+
+type Document = {
+  id: number;
+  fileName: string;
 };
 
 export default function TestCases() {
@@ -82,10 +91,15 @@ export default function TestCases() {
   const [moduleFilter, setModuleFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [documentFilter, setDocumentFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [selectedCase, setSelectedCase] = useState<TestCase | null>(null);
+  const [importDocumentId, setImportDocumentId] = useState<string>("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [editForm, setEditForm] = useState({
     scenario: "",
     module: "",
@@ -100,11 +114,13 @@ export default function TestCases() {
 
   const utils = trpc.useUtils();
   const { data: modules } = trpc.testCase.getModules.useQuery();
+  const { data: documents } = trpc.testCase.getDocuments.useQuery();
   const { data: testCases, isLoading } = trpc.testCase.search.useQuery({
     keyword: keyword || undefined,
     module: moduleFilter || undefined,
     priority: priorityFilter || undefined,
     executionStatus: statusFilter || undefined,
+    documentId: documentFilter ? parseInt(documentFilter) : undefined,
   });
 
   const updateMutation = trpc.testCase.update.useMutation({
@@ -128,6 +144,32 @@ export default function TestCases() {
     },
     onError: (error) => {
       toast.error(error.message || "删除失败");
+    },
+  });
+
+  const batchDeleteMutation = trpc.testCase.batchDelete.useMutation({
+    onSuccess: (data) => {
+      toast.success(`已删除 ${data.count} 条测试用例`);
+      utils.testCase.search.invalidate();
+      utils.stats.executionStats.invalidate();
+      setSelectedIds([]);
+      setBatchDeleteDialogOpen(false);
+    },
+    onError: (error) => {
+      toast.error(error.message || "批量删除失败");
+    },
+  });
+
+  const importMutation = trpc.testCase.import.useMutation({
+    onSuccess: (data) => {
+      toast.success(`已导入 ${data.count} 条测试用例`);
+      utils.testCase.search.invalidate();
+      utils.stats.executionStats.invalidate();
+      setImportDialogOpen(false);
+      setImportDocumentId("");
+    },
+    onError: (error) => {
+      toast.error(error.message || "导入失败");
     },
   });
 
@@ -182,6 +224,31 @@ export default function TestCases() {
     }
   };
 
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith(".xlsx") && !file.name.endsWith(".xls")) {
+      toast.error("请选择Excel文件（.xlsx或.xls）");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(",")[1];
+      importMutation.mutate({
+        fileData: base64,
+        documentId: importDocumentId ? parseInt(importDocumentId) : undefined,
+      });
+    };
+    reader.readAsDataURL(file);
+    
+    // 重置input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const toggleSelect = (id: number) => {
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
@@ -195,6 +262,12 @@ export default function TestCases() {
     } else {
       setSelectedIds(testCases.map((tc) => tc.id));
     }
+  };
+
+  const getDocumentName = (documentId: number | null) => {
+    if (!documentId || !documents) return "-";
+    const doc = documents.find((d) => d.id === documentId);
+    return doc?.fileName || "-";
   };
 
   const getPriorityBadge = (priority: string) => {
@@ -244,14 +317,29 @@ export default function TestCases() {
           <h1 className="text-2xl font-bold tracking-tight">测试用例</h1>
           <p className="text-muted-foreground">管理和执行测试用例</p>
         </div>
-        <Button onClick={handleExport} disabled={exportMutation.isPending}>
-          {exportMutation.isPending ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <Download className="h-4 w-4 mr-2" />
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            导入Excel
+          </Button>
+          {selectedIds.length > 0 && (
+            <Button
+              variant="destructive"
+              onClick={() => setBatchDeleteDialogOpen(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              批量删除 ({selectedIds.length})
+            </Button>
           )}
-          导出Excel {selectedIds.length > 0 && `(${selectedIds.length})`}
-        </Button>
+          <Button onClick={handleExport} disabled={exportMutation.isPending}>
+            {exportMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
+            导出Excel {selectedIds.length > 0 && `(${selectedIds.length})`}
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -268,6 +356,20 @@ export default function TestCases() {
                 />
               </div>
             </div>
+            <Select value={documentFilter} onValueChange={setDocumentFilter}>
+              <SelectTrigger className="w-[180px]">
+                <FolderOpen className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="需求分类" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部需求</SelectItem>
+                {documents?.map((d) => (
+                  <SelectItem key={d.id} value={String(d.id)}>
+                    {d.fileName.length > 15 ? d.fileName.substring(0, 15) + "..." : d.fileName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={moduleFilter} onValueChange={setModuleFilter}>
               <SelectTrigger className="w-[150px]">
                 <Filter className="h-4 w-4 mr-2" />
@@ -313,7 +415,7 @@ export default function TestCases() {
             <div className="flex flex-col items-center justify-center py-12">
               <FileText className="h-12 w-12 text-muted-foreground/50 mb-4" />
               <h3 className="text-lg font-medium mb-2">暂无测试用例</h3>
-              <p className="text-muted-foreground">上传需求文档并生成测试用例</p>
+              <p className="text-muted-foreground">上传需求文档并生成测试用例，或导入Excel文件</p>
             </div>
           ) : (
             <div className="rounded-md border">
@@ -327,6 +429,7 @@ export default function TestCases() {
                       />
                     </TableHead>
                     <TableHead className="w-[100px]">编号</TableHead>
+                    <TableHead className="w-[120px]">需求分类</TableHead>
                     <TableHead className="w-[100px]">模块</TableHead>
                     <TableHead>测试场景</TableHead>
                     <TableHead className="w-[80px]">优先级</TableHead>
@@ -345,8 +448,11 @@ export default function TestCases() {
                         />
                       </TableCell>
                       <TableCell className="font-mono text-sm">{tc.caseNumber}</TableCell>
+                      <TableCell className="text-sm max-w-[120px] truncate" title={getDocumentName((tc as any).documentId)}>
+                        {getDocumentName((tc as any).documentId)}
+                      </TableCell>
                       <TableCell>{tc.module || "-"}</TableCell>
-                      <TableCell className="max-w-[300px] truncate" title={tc.scenario}>
+                      <TableCell className="max-w-[250px] truncate" title={tc.scenario}>
                         {tc.scenario}
                       </TableCell>
                       <TableCell>{getPriorityBadge(tc.priority)}</TableCell>
@@ -390,6 +496,70 @@ export default function TestCases() {
           )}
         </CardContent>
       </Card>
+
+      {/* 导入对话框 */}
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>导入测试用例</DialogTitle>
+            <DialogDescription>
+              从Excel文件导入测试用例，支持.xlsx和.xls格式
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>关联需求文档（可选）</Label>
+              <Select value={importDocumentId} onValueChange={setImportDocumentId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="选择关联的需求文档" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">不关联</SelectItem>
+                  {documents?.map((d) => (
+                    <SelectItem key={d.id} value={String(d.id)}>
+                      {d.fileName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                关联需求文档后，导入的测试用例将归类到该需求下
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Excel文件格式要求</Label>
+              <div className="text-sm text-muted-foreground space-y-1">
+                <p>• 第一行为表头，包含：测试场景、预期结果（必填）</p>
+                <p>• 可选列：用例编号、模块、前置条件、测试步骤、优先级、用例类型</p>
+                <p>• 优先级支持：P0/P1/P2/P3 或 最高/高/中/低</p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importMutation.isPending}
+            >
+              {importMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+              )}
+              选择文件
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleImportFile}
+              className="hidden"
+            />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 编辑对话框 */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
@@ -531,6 +701,27 @@ export default function TestCases() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleteMutation.isPending ? "删除中..." : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 批量删除确认对话框 */}
+      <AlertDialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认批量删除</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除选中的 {selectedIds.length} 条测试用例吗？此操作不可撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => batchDeleteMutation.mutate({ ids: selectedIds })}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {batchDeleteMutation.isPending ? "删除中..." : "确认删除"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

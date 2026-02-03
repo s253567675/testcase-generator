@@ -331,6 +331,13 @@ export async function deleteTestCasesByDocumentId(documentId: number) {
   await db.delete(testCases).where(eq(testCases.documentId, documentId));
 }
 
+export async function deleteTestCasesByIds(ids: number[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (ids.length === 0) return;
+  await db.delete(testCases).where(sql`${testCases.id} IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`);
+}
+
 // ==================== 模板相关 ====================
 
 export async function createTemplate(data: InsertTestCaseTemplate) {
@@ -398,6 +405,19 @@ export async function updateGenerationHistory(id: number, data: Partial<InsertGe
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(generationHistory).set(data).where(eq(generationHistory.id, id));
+}
+
+export async function getHistoryById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(generationHistory).where(eq(generationHistory.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function deleteGenerationHistory(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(generationHistory).where(eq(generationHistory.id, id));
 }
 
 // ==================== 初始化默认管理员 ====================

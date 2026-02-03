@@ -34,7 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
-import { FileText, Loader2, MoreHorizontal, Plus, Sparkles, Trash2, Upload, Wand2 } from "lucide-react";
+import { Download, FileText, Loader2, MoreHorizontal, Plus, Sparkles, Trash2, Upload, Wand2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -46,6 +46,7 @@ export default function Documents() {
   const [generateMode, setGenerateMode] = useState<"template" | "ai">("template");
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [uploading, setUploading] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const utils = trpc.useUtils();
@@ -99,6 +100,27 @@ export default function Documents() {
       toast.error(error.message || "AI生成失败");
     },
   });
+
+  const handleDownload = async (docId: number) => {
+    setDownloadingId(docId);
+    try {
+      const result = await utils.client.document.download.query({ id: docId });
+      if (result.url) {
+        const link = document.createElement("a");
+        link.href = result.url;
+        link.download = result.fileName;
+        link.target = "_blank";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success("文档下载已开始");
+      }
+    } catch (error: any) {
+      toast.error(error.message || "下载失败");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   const handleFileSelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -226,6 +248,17 @@ export default function Documents() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem
+                        onClick={() => handleDownload(doc.id)}
+                        disabled={downloadingId === doc.id}
+                      >
+                        {downloadingId === doc.id ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Download className="h-4 w-4 mr-2" />
+                        )}
+                        下载文档
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
                         onClick={() => openGenerateDialog(doc.id)}
                         disabled={doc.status !== "parsed"}
                       >
@@ -264,16 +297,30 @@ export default function Documents() {
                       ? "解析失败"
                       : "已上传"}
                   </span>
-                  {doc.status === "parsed" && (
+                  <div className="flex gap-2">
                     <Button
                       size="sm"
-                      variant="outline"
-                      onClick={() => openGenerateDialog(doc.id)}
+                      variant="ghost"
+                      onClick={() => handleDownload(doc.id)}
+                      disabled={downloadingId === doc.id}
                     >
-                      <Sparkles className="h-3 w-3 mr-1" />
-                      生成用例
+                      {downloadingId === doc.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Download className="h-3 w-3" />
+                      )}
                     </Button>
-                  )}
+                    {doc.status === "parsed" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openGenerateDialog(doc.id)}
+                      >
+                        <Sparkles className="h-3 w-3 mr-1" />
+                        生成用例
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>

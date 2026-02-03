@@ -35,8 +35,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { Edit, FileText, Loader2, MoreHorizontal, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Edit, FileSpreadsheet, FileText, Loader2, MoreHorizontal, Plus, Trash2, Upload } from "lucide-react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 type TemplateCase = {
@@ -70,8 +70,10 @@ const defaultCase: TemplateCase = {
 export default function Templates() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -114,6 +116,17 @@ export default function Templates() {
     },
     onError: (error) => {
       toast.error(error.message || "删除失败");
+    },
+  });
+
+  const importMutation = trpc.template.import.useMutation({
+    onSuccess: (data) => {
+      toast.success(`模板 "${data.name}" 导入成功，包含 ${data.caseCount} 个用例`);
+      utils.template.list.invalidate();
+      setImportDialogOpen(false);
+    },
+    onError: (error) => {
+      toast.error(error.message || "导入失败");
     },
   });
 
@@ -175,6 +188,28 @@ export default function Templates() {
     }
   };
 
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith(".xlsx") && !file.name.endsWith(".xls")) {
+      toast.error("请选择Excel文件（.xlsx或.xls）");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(",")[1];
+      importMutation.mutate({ fileData: base64 });
+    };
+    reader.readAsDataURL(file);
+
+    // 重置input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const addCase = () => {
     setForm({ ...form, cases: [...form.cases, { ...defaultCase }] });
   };
@@ -199,10 +234,16 @@ export default function Templates() {
           <h1 className="text-2xl font-bold tracking-tight">测试用例模板</h1>
           <p className="text-muted-foreground">管理可复用的测试用例模板</p>
         </div>
-        <Button onClick={openCreateDialog}>
-          <Plus className="h-4 w-4 mr-2" />
-          新建模板
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            导入模板
+          </Button>
+          <Button onClick={openCreateDialog}>
+            <Plus className="h-4 w-4 mr-2" />
+            新建模板
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -217,10 +258,16 @@ export default function Templates() {
             <p className="text-muted-foreground text-center mb-4">
               创建测试用例模板以便快速生成用例
             </p>
-            <Button onClick={openCreateDialog}>
-              <Plus className="h-4 w-4 mr-2" />
-              创建第一个模板
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
+                <Upload className="h-4 w-4 mr-2" />
+                导入模板
+              </Button>
+              <Button onClick={openCreateDialog}>
+                <Plus className="h-4 w-4 mr-2" />
+                创建第一个模板
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : (
@@ -278,6 +325,52 @@ export default function Templates() {
           ))}
         </div>
       )}
+
+      {/* 导入模板对话框 */}
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>导入测试用例模板</DialogTitle>
+            <DialogDescription>
+              从Excel文件导入测试用例模板，支持.xlsx和.xls格式
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Excel文件格式要求</Label>
+              <div className="text-sm text-muted-foreground space-y-1">
+                <p>• 第一行为表头，包含：测试场景、预期结果（必填）</p>
+                <p>• 可选列：前置条件、测试步骤、优先级、用例类型</p>
+                <p>• 文件名将作为模板名称</p>
+                <p>• 优先级支持：P0/P1/P2/P3 或 最高/高/中/低</p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importMutation.isPending}
+            >
+              {importMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+              )}
+              选择文件
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleImportFile}
+              className="hidden"
+            />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 创建/编辑对话框 */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
