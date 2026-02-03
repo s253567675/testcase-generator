@@ -24,6 +24,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -48,6 +49,7 @@ import { trpc } from "@/lib/trpc";
 import {
   CheckCircle2,
   Clock,
+  Copy,
   Download,
   Edit,
   FileSpreadsheet,
@@ -56,6 +58,7 @@ import {
   FolderOpen,
   Loader2,
   MoreHorizontal,
+  PlayCircle,
   Search,
   Trash2,
   Upload,
@@ -96,9 +99,12 @@ export default function TestCases() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
+  const [batchStatusDialogOpen, setBatchStatusDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [selectedCase, setSelectedCase] = useState<TestCase | null>(null);
   const [importDocumentId, setImportDocumentId] = useState<string>("");
+  const [batchStatus, setBatchStatus] = useState<"pending" | "passed" | "failed">("pending");
+  const [batchExecutionResult, setBatchExecutionResult] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [editForm, setEditForm] = useState({
     scenario: "",
@@ -157,6 +163,32 @@ export default function TestCases() {
     },
     onError: (error) => {
       toast.error(error.message || "批量删除失败");
+    },
+  });
+
+  const batchUpdateStatusMutation = trpc.testCase.batchUpdateStatus.useMutation({
+    onSuccess: (data) => {
+      toast.success(`已更新 ${data.count} 条测试用例状态`);
+      utils.testCase.search.invalidate();
+      utils.stats.executionStats.invalidate();
+      setSelectedIds([]);
+      setBatchStatusDialogOpen(false);
+      setBatchStatus("pending");
+      setBatchExecutionResult("");
+    },
+    onError: (error) => {
+      toast.error(error.message || "批量更新状态失败");
+    },
+  });
+
+  const copyMutation = trpc.testCase.copy.useMutation({
+    onSuccess: () => {
+      toast.success("测试用例已复制");
+      utils.testCase.search.invalidate();
+      utils.stats.executionStats.invalidate();
+    },
+    onError: (error) => {
+      toast.error(error.message || "复制失败");
     },
   });
 
@@ -222,6 +254,18 @@ export default function TestCases() {
     } else {
       exportMutation.mutate({});
     }
+  };
+
+  const handleBatchUpdateStatus = () => {
+    batchUpdateStatusMutation.mutate({
+      ids: selectedIds,
+      status: batchStatus,
+      executionResult: batchExecutionResult || undefined,
+    });
+  };
+
+  const handleCopy = (id: number) => {
+    copyMutation.mutate({ id });
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -323,13 +367,22 @@ export default function TestCases() {
             导入Excel
           </Button>
           {selectedIds.length > 0 && (
-            <Button
-              variant="destructive"
-              onClick={() => setBatchDeleteDialogOpen(true)}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              批量删除 ({selectedIds.length})
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                onClick={() => setBatchStatusDialogOpen(true)}
+              >
+                <PlayCircle className="h-4 w-4 mr-2" />
+                批量更新状态 ({selectedIds.length})
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => setBatchDeleteDialogOpen(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                批量删除 ({selectedIds.length})
+              </Button>
+            </>
           )}
           <Button onClick={handleExport} disabled={exportMutation.isPending}>
             {exportMutation.isPending ? (
@@ -475,6 +528,14 @@ export default function TestCases() {
                               <Edit className="h-4 w-4 mr-2" />
                               编辑
                             </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              onClick={() => handleCopy(tc.id)}
+                              disabled={copyMutation.isPending}
+                            >
+                              <Copy className="h-4 w-4 mr-2" />
+                              复制
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onClick={() => {
                                 setSelectedCase(tc as TestCase);
@@ -557,6 +618,72 @@ export default function TestCases() {
               onChange={handleImportFile}
               className="hidden"
             />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 批量更新状态对话框 */}
+      <Dialog open={batchStatusDialogOpen} onOpenChange={setBatchStatusDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>批量更新执行状态</DialogTitle>
+            <DialogDescription>
+              将选中的 {selectedIds.length} 条测试用例更新为指定状态
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>执行状态</Label>
+              <Select value={batchStatus} onValueChange={(v) => setBatchStatus(v as any)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-yellow-500" />
+                      待执行
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="passed">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      通过
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="failed">
+                    <div className="flex items-center gap-2">
+                      <XCircle className="h-4 w-4 text-red-500" />
+                      失败
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {batchStatus !== "pending" && (
+              <div className="space-y-2">
+                <Label>执行结果备注（可选）</Label>
+                <Textarea
+                  value={batchExecutionResult}
+                  onChange={(e) => setBatchExecutionResult(e.target.value)}
+                  placeholder="记录执行结果或失败原因"
+                  rows={3}
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBatchStatusDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={handleBatchUpdateStatus} disabled={batchUpdateStatusMutation.isPending}>
+              {batchUpdateStatusMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <PlayCircle className="h-4 w-4 mr-2" />
+              )}
+              确认更新
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

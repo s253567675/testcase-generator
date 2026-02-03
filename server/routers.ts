@@ -20,6 +20,8 @@ import {
   deleteTestCase,
   deleteTestCasesByDocumentId,
   deleteTestCasesByIds,
+  updateTestCasesStatusByIds,
+  copyTestCase,
   deleteUser,
   ensureAdminUser,
   getAIModelById,
@@ -324,6 +326,39 @@ export const appRouter = router({
         
         await deleteTestCasesByIds(validIds);
         return { success: true, count: validIds.length };
+      }),
+    batchUpdateStatus: protectedProcedure
+      .input(
+        z.object({
+          ids: z.array(z.number()).min(1),
+          status: z.enum(["pending", "passed", "failed"]),
+          executionResult: z.string().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const allCases = await getTestCasesWithIsolation(ctx.user.id, ctx.user.role === "admin");
+        const allowedIds = allCases.map((tc) => tc.id);
+        const validIds = input.ids.filter((id) => allowedIds.includes(id));
+        
+        if (validIds.length === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "没有可操作的测试用例" });
+        }
+        
+        await updateTestCasesStatusByIds(validIds, input.status, input.executionResult);
+        return { success: true, count: validIds.length };
+      }),
+    copy: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const testCase = await getTestCaseById(input.id);
+        if (!testCase) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "测试用例不存在" });
+        }
+        if (ctx.user.role !== "admin" && testCase.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "无权复制此测试用例" });
+        }
+        const newId = await copyTestCase(input.id, ctx.user.id);
+        return { success: true, id: newId };
       }),
     import: protectedProcedure
       .input(

@@ -340,6 +340,52 @@ export async function deleteTestCasesByIds(ids: number[]) {
   await db.delete(testCases).where(sql`${testCases.id} IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`);
 }
 
+export async function updateTestCasesStatusByIds(
+  ids: number[],
+  status: "pending" | "passed" | "failed",
+  executionResult?: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (ids.length === 0) return;
+  const updateData: any = { executionStatus: status };
+  if (executionResult !== undefined) {
+    updateData.executionResult = executionResult;
+  }
+  await db.update(testCases).set(updateData).where(sql`${testCases.id} IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`);
+}
+
+export async function copyTestCase(id: number, userId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const original = await getTestCaseById(id);
+  if (!original) throw new Error("测试用例不存在");
+  
+  // 生成新的用例编号
+  const timestamp = Date.now().toString().slice(-6);
+  const newCaseNumber = `${original.caseNumber}-COPY-${timestamp}`;
+  
+  const newTestCase: InsertTestCase = {
+    userId,
+    documentId: original.documentId,
+    caseNumber: newCaseNumber,
+    module: original.module,
+    scenario: original.scenario,
+    precondition: original.precondition,
+    steps: original.steps,
+    expectedResult: original.expectedResult,
+    priority: original.priority,
+    caseType: original.caseType,
+    executionStatus: "pending",
+    executionResult: null,
+    generationMode: "import",
+  };
+  
+  const result = await db.insert(testCases).values(newTestCase);
+  return result[0].insertId;
+}
+
 // ==================== 模板相关 ====================
 
 export async function createTemplate(data: InsertTestCaseTemplate) {
