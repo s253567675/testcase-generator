@@ -10,9 +10,11 @@ import {
   InsertGenerationHistory,
   InsertTestCase,
   InsertTestCaseTemplate,
+  InsertTestCaseVersion,
   InsertUser,
   testCases,
   testCaseTemplates,
+  testCaseVersions,
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
@@ -384,6 +386,109 @@ export async function copyTestCase(id: number, userId: number): Promise<number> 
   
   const result = await db.insert(testCases).values(newTestCase);
   return result[0].insertId;
+}
+
+// ==================== 版本历史相关 ====================
+
+export async function createTestCaseVersion(
+  testCaseId: number,
+  userId: number,
+  changeType: "create" | "update" | "rollback",
+  changeDescription?: string
+): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const testCase = await getTestCaseById(testCaseId);
+  if (!testCase) throw new Error("测试用例不存在");
+  
+  // 获取当前最大版本号
+  const versions = await db
+    .select({ version: testCaseVersions.version })
+    .from(testCaseVersions)
+    .where(eq(testCaseVersions.testCaseId, testCaseId))
+    .orderBy(desc(testCaseVersions.version))
+    .limit(1);
+  
+  const newVersion = versions.length > 0 ? versions[0].version + 1 : 1;
+  
+  const versionData: InsertTestCaseVersion = {
+    testCaseId,
+    userId,
+    version: newVersion,
+    changeType,
+    changeDescription,
+    caseNumber: testCase.caseNumber,
+    module: testCase.module,
+    scenario: testCase.scenario,
+    precondition: testCase.precondition,
+    steps: testCase.steps,
+    expectedResult: testCase.expectedResult,
+    priority: testCase.priority,
+    caseType: testCase.caseType,
+    executionStatus: testCase.executionStatus,
+    executionResult: testCase.executionResult,
+  };
+  
+  const result = await db.insert(testCaseVersions).values(versionData);
+  return result[0].insertId;
+}
+
+export async function getTestCaseVersions(testCaseId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(testCaseVersions)
+    .where(eq(testCaseVersions.testCaseId, testCaseId))
+    .orderBy(desc(testCaseVersions.version));
+}
+
+export async function getTestCaseVersionById(versionId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(testCaseVersions)
+    .where(eq(testCaseVersions.id, versionId))
+    .limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function rollbackTestCaseToVersion(
+  testCaseId: number,
+  versionId: number,
+  userId: number
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const version = await getTestCaseVersionById(versionId);
+  if (!version) throw new Error("版本不存在");
+  if (version.testCaseId !== testCaseId) throw new Error("版本不属于该测试用例");
+  
+  // 先保存当前版本
+  await createTestCaseVersion(testCaseId, userId, "rollback", `回滚到版本 ${version.version}`);
+  
+  // 更新测试用例为历史版本的内容
+  await db.update(testCases).set({
+    caseNumber: version.caseNumber,
+    module: version.module,
+    scenario: version.scenario,
+    precondition: version.precondition,
+    steps: version.steps,
+    expectedResult: version.expectedResult,
+    priority: version.priority,
+    caseType: version.caseType,
+    executionStatus: version.executionStatus,
+    executionResult: version.executionResult,
+  }).where(eq(testCases.id, testCaseId));
+}
+
+export async function deleteTestCaseVersions(testCaseId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(testCaseVersions).where(eq(testCaseVersions.testCaseId, testCaseId));
 }
 
 // ==================== 模板相关 ====================

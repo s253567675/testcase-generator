@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -56,9 +57,11 @@ import {
   FileText,
   Filter,
   FolderOpen,
+  History,
   Loader2,
   MoreHorizontal,
   PlayCircle,
+  RotateCcw,
   Search,
   Trash2,
   Upload,
@@ -84,6 +87,25 @@ type TestCase = {
   createdAt: Date;
 };
 
+type TestCaseVersion = {
+  id: number;
+  testCaseId: number;
+  version: number;
+  changeType: "create" | "update" | "rollback";
+  changeDescription: string | null;
+  caseNumber: string;
+  module: string | null;
+  scenario: string;
+  precondition: string | null;
+  steps: string[];
+  expectedResult: string;
+  priority: "P0" | "P1" | "P2" | "P3";
+  caseType: "functional" | "boundary" | "exception" | "performance";
+  executionStatus: "pending" | "passed" | "failed";
+  executionResult: string | null;
+  createdAt: Date;
+};
+
 type Document = {
   id: number;
   fileName: string;
@@ -101,7 +123,11 @@ export default function TestCases() {
   const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
   const [batchStatusDialogOpen, setBatchStatusDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [versionDetailDialogOpen, setVersionDetailDialogOpen] = useState(false);
+  const [rollbackDialogOpen, setRollbackDialogOpen] = useState(false);
   const [selectedCase, setSelectedCase] = useState<TestCase | null>(null);
+  const [selectedVersion, setSelectedVersion] = useState<TestCaseVersion | null>(null);
   const [importDocumentId, setImportDocumentId] = useState<string>("");
   const [batchStatus, setBatchStatus] = useState<"pending" | "passed" | "failed">("pending");
   const [batchExecutionResult, setBatchExecutionResult] = useState("");
@@ -128,6 +154,11 @@ export default function TestCases() {
     executionStatus: statusFilter && statusFilter !== "all" ? statusFilter : undefined,
     documentId: documentFilter && documentFilter !== "all" ? parseInt(documentFilter) : undefined,
   });
+
+  const { data: versions, isLoading: versionsLoading } = trpc.testCase.getVersions.useQuery(
+    { testCaseId: selectedCase?.id || 0 },
+    { enabled: !!selectedCase && historyDialogOpen }
+  );
 
   const updateMutation = trpc.testCase.update.useMutation({
     onSuccess: () => {
@@ -192,6 +223,20 @@ export default function TestCases() {
     },
   });
 
+  const rollbackMutation = trpc.testCase.rollbackToVersion.useMutation({
+    onSuccess: () => {
+      toast.success("已回滚到历史版本");
+      utils.testCase.search.invalidate();
+      utils.testCase.getVersions.invalidate();
+      setRollbackDialogOpen(false);
+      setHistoryDialogOpen(false);
+      setSelectedVersion(null);
+    },
+    onError: (error) => {
+      toast.error(error.message || "回滚失败");
+    },
+  });
+
   const importMutation = trpc.testCase.import.useMutation({
     onSuccess: (data) => {
       toast.success(`已导入 ${data.count} 条测试用例`);
@@ -232,6 +277,11 @@ export default function TestCases() {
     setEditDialogOpen(true);
   };
 
+  const openHistoryDialog = (tc: TestCase) => {
+    setSelectedCase(tc);
+    setHistoryDialogOpen(true);
+  };
+
   const handleUpdate = () => {
     if (!selectedCase) return;
     updateMutation.mutate({
@@ -266,6 +316,14 @@ export default function TestCases() {
 
   const handleCopy = (id: number) => {
     copyMutation.mutate({ id });
+  };
+
+  const handleRollback = () => {
+    if (!selectedCase || !selectedVersion) return;
+    rollbackMutation.mutate({
+      testCaseId: selectedCase.id,
+      versionId: selectedVersion.id,
+    });
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -352,6 +410,35 @@ export default function TestCases() {
       performance: "性能测试",
     };
     return labels[type] || type;
+  };
+
+  const getChangeTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      create: "创建",
+      update: "更新",
+      rollback: "回滚",
+    };
+    return labels[type] || type;
+  };
+
+  const getChangeTypeBadge = (type: string) => {
+    const colors: Record<string, string> = {
+      create: "bg-green-100 text-green-700 border-green-200",
+      update: "bg-blue-100 text-blue-700 border-blue-200",
+      rollback: "bg-orange-100 text-orange-700 border-orange-200",
+    };
+    return <Badge variant="outline" className={colors[type]}>{getChangeTypeLabel(type)}</Badge>;
+  };
+
+  const formatDate = (date: Date | string) => {
+    const d = new Date(date);
+    return d.toLocaleString("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   return (
@@ -535,6 +622,10 @@ export default function TestCases() {
                               <Copy className="h-4 w-4 mr-2" />
                               复制
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => openHistoryDialog(tc as TestCase)}>
+                              <History className="h-4 w-4 mr-2" />
+                              版本历史
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onClick={() => {
@@ -687,6 +778,205 @@ export default function TestCases() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 版本历史对话框 */}
+      <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>版本历史</DialogTitle>
+            <DialogDescription>
+              测试用例 "{selectedCase?.caseNumber}" 的修改历史记录
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="h-[400px] pr-4">
+            {versionsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : !versions || versions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <History className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                <h3 className="text-lg font-medium mb-2">暂无版本历史</h3>
+                <p className="text-muted-foreground">修改测试用例后将自动记录版本历史</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {versions.map((v, index) => (
+                  <div
+                    key={v.id}
+                    className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-sm bg-muted px-2 py-1 rounded">
+                          v{v.version}
+                        </span>
+                        {getChangeTypeBadge(v.changeType)}
+                        {index === 0 && (
+                          <Badge variant="secondary">当前版本</Badge>
+                        )}
+                      </div>
+                      <span className="text-sm text-muted-foreground">
+                        {formatDate(v.createdAt)}
+                      </span>
+                    </div>
+                    {v.changeDescription && (
+                      <p className="text-sm text-muted-foreground mb-3">
+                        {v.changeDescription}
+                      </p>
+                    )}
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">场景：</span>
+                        <span className="ml-1">{v.scenario.length > 50 ? v.scenario.substring(0, 50) + "..." : v.scenario}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">优先级：</span>
+                        <span className="ml-1">{v.priority}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">状态：</span>
+                        <span className="ml-1">{getStatusLabel(v.executionStatus)}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">模块：</span>
+                        <span className="ml-1">{v.module || "-"}</span>
+                      </div>
+                    </div>
+                    {index > 0 && (
+                      <div className="mt-3 flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedVersion(v as TestCaseVersion);
+                            setVersionDetailDialogOpen(true);
+                          }}
+                        >
+                          查看详情
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedVersion(v as TestCaseVersion);
+                            setRollbackDialogOpen(true);
+                          }}
+                        >
+                          <RotateCcw className="h-4 w-4 mr-1" />
+                          回滚到此版本
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
+
+      {/* 版本详情对话框 */}
+      <Dialog open={versionDetailDialogOpen} onOpenChange={setVersionDetailDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>版本详情 - v{selectedVersion?.version}</DialogTitle>
+            <DialogDescription>
+              {selectedVersion && formatDate(selectedVersion.createdAt)}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedVersion && (
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-muted-foreground">用例编号</Label>
+                  <p className="font-mono">{selectedVersion.caseNumber}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">模块</Label>
+                  <p>{selectedVersion.module || "-"}</p>
+                </div>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">测试场景</Label>
+                <p className="mt-1">{selectedVersion.scenario}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">前置条件</Label>
+                <p className="mt-1">{selectedVersion.precondition || "-"}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">测试步骤</Label>
+                <ol className="mt-1 list-decimal list-inside space-y-1">
+                  {selectedVersion.steps?.map((step, i) => (
+                    <li key={i}>{step}</li>
+                  ))}
+                </ol>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">预期结果</Label>
+                <p className="mt-1">{selectedVersion.expectedResult}</p>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <Label className="text-muted-foreground">优先级</Label>
+                  <p className="mt-1">{selectedVersion.priority}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">用例类型</Label>
+                  <p className="mt-1">{getCaseTypeLabel(selectedVersion.caseType)}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">执行状态</Label>
+                  <p className="mt-1">{getStatusLabel(selectedVersion.executionStatus)}</p>
+                </div>
+              </div>
+              {selectedVersion.executionResult && (
+                <div>
+                  <Label className="text-muted-foreground">执行结果</Label>
+                  <p className="mt-1">{selectedVersion.executionResult}</p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVersionDetailDialogOpen(false)}>
+              关闭
+            </Button>
+            <Button
+              onClick={() => {
+                setVersionDetailDialogOpen(false);
+                setRollbackDialogOpen(true);
+              }}
+            >
+              <RotateCcw className="h-4 w-4 mr-2" />
+              回滚到此版本
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 回滚确认对话框 */}
+      <AlertDialog open={rollbackDialogOpen} onOpenChange={setRollbackDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认回滚</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要将测试用例回滚到版本 v{selectedVersion?.version} 吗？
+              当前版本将被保存到历史记录中。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleRollback}
+              disabled={rollbackMutation.isPending}
+            >
+              {rollbackMutation.isPending ? "回滚中..." : "确认回滚"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 编辑对话框 */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

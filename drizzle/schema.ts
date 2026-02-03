@@ -131,3 +131,30 @@ export const aiModels = mysqlTable("aiModels", {
 
 export type AIModel = typeof aiModels.$inferSelect;
 export type InsertAIModel = typeof aiModels.$inferInsert;
+
+/**
+ * 测试用例版本历史表 - 记录测试用例的修改历史
+ */
+export const testCaseVersions = mysqlTable("testCaseVersions", {
+  id: int("id").autoincrement().primaryKey(),
+  testCaseId: int("testCaseId").notNull(),
+  userId: int("userId").notNull(),
+  version: int("version").notNull(),
+  changeType: mysqlEnum("changeType", ["create", "update", "rollback"]).notNull(),
+  changeDescription: text("changeDescription"),
+  // 快照数据
+  caseNumber: varchar("caseNumber", { length: 50 }).notNull(),
+  module: varchar("module", { length: 255 }),
+  scenario: text("scenario").notNull(),
+  precondition: text("precondition"),
+  steps: json("steps").$type<string[]>(),
+  expectedResult: text("expectedResult").notNull(),
+  priority: mysqlEnum("priority", ["P0", "P1", "P2", "P3"]).notNull(),
+  caseType: mysqlEnum("caseType", ["functional", "boundary", "exception", "performance"]).notNull(),
+  executionStatus: mysqlEnum("executionStatus", ["pending", "passed", "failed"]).notNull(),
+  executionResult: text("executionResult"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type TestCaseVersion = typeof testCaseVersions.$inferSelect;
+export type InsertTestCaseVersion = typeof testCaseVersions.$inferInsert;

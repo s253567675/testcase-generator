@@ -11,6 +11,7 @@ import {
   createGenerationHistory,
   createTemplate,
   createTestCases,
+  createTestCaseVersion,
   createUserWithPassword,
   deleteAIModel,
   deleteDocument,
@@ -20,6 +21,10 @@ import {
   deleteTestCase,
   deleteTestCasesByDocumentId,
   deleteTestCasesByIds,
+  deleteTestCaseVersions,
+  getTestCaseVersionById,
+  getTestCaseVersions,
+  rollbackTestCaseToVersion,
   updateTestCasesStatusByIds,
   copyTestCase,
   deleteUser,
@@ -295,6 +300,18 @@ export const appRouter = router({
         if (ctx.user.role !== "admin" && testCase.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "无权修改" });
         }
+        // 先保存当前版本到历史记录
+        const changedFields: string[] = [];
+        if (input.scenario && input.scenario !== testCase.scenario) changedFields.push("测试场景");
+        if (input.module && input.module !== testCase.module) changedFields.push("模块");
+        if (input.steps) changedFields.push("测试步骤");
+        if (input.expectedResult && input.expectedResult !== testCase.expectedResult) changedFields.push("预期结果");
+        if (input.priority && input.priority !== testCase.priority) changedFields.push("优先级");
+        if (input.executionStatus && input.executionStatus !== testCase.executionStatus) changedFields.push("执行状态");
+        
+        const changeDesc = changedFields.length > 0 ? `修改了: ${changedFields.join(", ")}` : "更新测试用例";
+        await createTestCaseVersion(input.id, ctx.user.id, "update", changeDesc);
+        
         const { id, ...data } = input;
         if (data.executionStatus && data.executionStatus !== "pending") {
           (data as any).executedAt = new Date();
@@ -310,6 +327,8 @@ export const appRouter = router({
       if (ctx.user.role !== "admin" && testCase.userId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "无权删除" });
       }
+      // 删除版本历史
+      await deleteTestCaseVersions(input.id);
       await deleteTestCase(input.id);
       return { success: true };
     }),
@@ -359,6 +378,48 @@ export const appRouter = router({
         }
         const newId = await copyTestCase(input.id, ctx.user.id);
         return { success: true, id: newId };
+      }),
+    // 版本历史相关API
+    getVersions: protectedProcedure
+      .input(z.object({ testCaseId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const testCase = await getTestCaseById(input.testCaseId);
+        if (!testCase) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "测试用例不存在" });
+        }
+        if (ctx.user.role !== "admin" && testCase.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "无权访问" });
+        }
+        return getTestCaseVersions(input.testCaseId);
+      }),
+    getVersionDetail: protectedProcedure
+      .input(z.object({ versionId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const version = await getTestCaseVersionById(input.versionId);
+        if (!version) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "版本不存在" });
+        }
+        const testCase = await getTestCaseById(version.testCaseId);
+        if (!testCase) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "测试用例不存在" });
+        }
+        if (ctx.user.role !== "admin" && testCase.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "无权访问" });
+        }
+        return version;
+      }),
+    rollbackToVersion: protectedProcedure
+      .input(z.object({ testCaseId: z.number(), versionId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const testCase = await getTestCaseById(input.testCaseId);
+        if (!testCase) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "测试用例不存在" });
+        }
+        if (ctx.user.role !== "admin" && testCase.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "无权操作" });
+        }
+        await rollbackTestCaseToVersion(input.testCaseId, input.versionId, ctx.user.id);
+        return { success: true };
       }),
     import: protectedProcedure
       .input(

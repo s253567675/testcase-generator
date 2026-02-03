@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `testCaseVersions` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`testCaseId` int NOT NULL,\n\t`userId` int NOT NULL,\n\t`version` int NOT NULL,\n\t`changeType` enum('create','update','rollback') NOT NULL,\n\t`changeDescription` text,\n\t`caseNumber` varchar(50) NOT NULL,\n\t`module` varchar(255),\n\t`scenario` text NOT NULL,\n\t`precondition` text,\n\t`steps` json,\n\t`expectedResult` text NOT NULL,\n\t`priority` enum('P0','P1','P2','P3') NOT NULL,\n\t`caseType` enum('functional','boundary','exception','performance') NOT NULL,\n\t`executionStatus` enum('pending','passed','failed') NOT NULL,\n\t`executionResult` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `testCaseVersions_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3XQv8za4He2Ss1X.181014161172 --database RRYTdLbDghCoWi3Fo5C9Lm --execute CREATE TABLE `testCaseVersions` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`testCaseId` int NOT NULL,\n\t`userId` int NOT NULL,\n\t`version` int NOT NULL,\n\t`changeType` enum('create','update','rollback') NOT NULL,\n\t`changeDescription` text,\n\t`caseNumber` varchar(50) NOT NULL,\n\t`module` varchar(255),\n\t`scenario` text NOT NULL,\n\t`precondition` text,\n\t`steps` json,\n\t`expectedResult` text NOT NULL,\n\t`priority` enum('P0','P1','P2','P3') NOT NULL,\n\t`caseType` enum('functional','boundary','exception','performance') NOT NULL,\n\t`executionStatus` enum('pending','passed','failed') NOT NULL,\n\t`executionResult` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `testCaseVersions_id` PRIMARY KEY(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2119
+}

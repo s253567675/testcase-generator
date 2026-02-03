@@ -1,0 +1,20 @@
+CREATE TABLE `testCaseVersions` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`testCaseId` int NOT NULL,
+	`userId` int NOT NULL,
+	`version` int NOT NULL,
+	`changeType` enum('create','update','rollback') NOT NULL,
+	`changeDescription` text,
+	`caseNumber` varchar(50) NOT NULL,
+	`module` varchar(255),
+	`scenario` text NOT NULL,
+	`precondition` text,
+	`steps` json,
+	`expectedResult` text NOT NULL,
+	`priority` enum('P0','P1','P2','P3') NOT NULL,
+	`caseType` enum('functional','boundary','exception','performance') NOT NULL,
+	`executionStatus` enum('pending','passed','failed') NOT NULL,
+	`executionResult` text,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `testCaseVersions_id` PRIMARY KEY(`id`)
+);
