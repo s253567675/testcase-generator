@@ -77,6 +77,8 @@ export const generationHistory = mysqlTable("generationHistory", {
   caseCount: int("caseCount").default(0).notNull(),
   status: mysqlEnum("status", ["pending", "completed", "failed"]).default("pending").notNull(),
   errorMessage: text("errorMessage"),
+  generatorName: varchar("generatorName", { length: 100 }),
+  modelName: varchar("modelName", { length: 100 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -109,3 +111,23 @@ export interface TemplateContent {
 
 export type TestCaseTemplate = typeof testCaseTemplates.$inferSelect;
 export type InsertTestCaseTemplate = typeof testCaseTemplates.$inferInsert;
+
+/**
+ * AI模型配置表 - 存储自定义AI模型配置
+ */
+export const aiModels = mysqlTable("aiModels", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  provider: varchar("provider", { length: 50 }).notNull(),
+  modelId: varchar("modelId", { length: 100 }).notNull(),
+  apiUrl: text("apiUrl").notNull(),
+  apiKey: text("apiKey").notNull(),
+  isDefault: int("isDefault").default(0).notNull(),
+  isSystem: int("isSystem").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AIModel = typeof aiModels.$inferSelect;
+export type InsertAIModel = typeof aiModels.$inferInsert;

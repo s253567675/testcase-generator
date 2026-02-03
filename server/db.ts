@@ -2,8 +2,10 @@ import bcrypt from "bcryptjs";
 import { and, desc, eq, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
+  aiModels,
   documents,
   generationHistory,
+  InsertAIModel,
   InsertDocument,
   InsertGenerationHistory,
   InsertTestCase,
@@ -418,6 +420,82 @@ export async function deleteGenerationHistory(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(generationHistory).where(eq(generationHistory.id, id));
+}
+
+export async function deleteGenerationHistoryByIds(ids: number[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (ids.length === 0) return;
+  await db.delete(generationHistory).where(sql`${generationHistory.id} IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`);
+}
+
+// ==================== AI模型相关 ====================
+
+export async function createAIModel(data: InsertAIModel) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(aiModels).values(data);
+  return result[0].insertId;
+}
+
+export async function getAIModelById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(aiModels).where(eq(aiModels.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getAIModelsWithIsolation(userId: number, isAdmin: boolean) {
+  const db = await getDb();
+  if (!db) return [];
+  if (isAdmin) {
+    return db.select().from(aiModels).orderBy(desc(aiModels.createdAt));
+  }
+  return db
+    .select()
+    .from(aiModels)
+    .where(or(eq(aiModels.userId, userId), eq(aiModels.isSystem, 1)))
+    .orderBy(desc(aiModels.createdAt));
+}
+
+export async function updateAIModel(id: number, data: Partial<InsertAIModel>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(aiModels).set(data).where(eq(aiModels.id, id));
+}
+
+export async function deleteAIModel(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(aiModels).where(eq(aiModels.id, id));
+}
+
+export async function setDefaultAIModel(userId: number, modelId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // 先清除该用户的所有默认模型
+  await db.update(aiModels).set({ isDefault: 0 }).where(eq(aiModels.userId, userId));
+  // 设置新的默认模型
+  await db.update(aiModels).set({ isDefault: 1 }).where(eq(aiModels.id, modelId));
+}
+
+export async function getDefaultAIModel(userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  // 先查找用户的默认模型
+  const userDefault = await db
+    .select()
+    .from(aiModels)
+    .where(and(eq(aiModels.userId, userId), eq(aiModels.isDefault, 1)))
+    .limit(1);
+  if (userDefault.length > 0) return userDefault[0];
+  // 如果没有，查找系统默认模型
+  const systemDefault = await db
+    .select()
+    .from(aiModels)
+    .where(and(eq(aiModels.isSystem, 1), eq(aiModels.isDefault, 1)))
+    .limit(1);
+  return systemDefault.length > 0 ? systemDefault[0] : undefined;
 }
 
 // ==================== 初始化默认管理员 ====================

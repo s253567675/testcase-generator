@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `aiModels` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`name` varchar(100) NOT NULL,\n\t`provider` varchar(50) NOT NULL,\n\t`modelId` varchar(100) NOT NULL,\n\t`apiUrl` text NOT NULL,\n\t`apiKey` text NOT NULL,\n\t`isDefault` int NOT NULL DEFAULT 0,\n\t`isSystem` int NOT NULL DEFAULT 0,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `aiModels_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `generationHistory` ADD `generatorName` varchar(100);\nALTER TABLE `generationHistory` ADD `modelName` varchar(100);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3XQv8za4He2Ss1X.181014161172 --database RRYTdLbDghCoWi3Fo5C9Lm --execute CREATE TABLE `aiModels` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`name` varchar(100) NOT NULL,\n\t`provider` varchar(50) NOT NULL,\n\t`modelId` varchar(100) NOT NULL,\n\t`apiUrl` text NOT NULL,\n\t`apiKey` text NOT NULL,\n\t`isDefault` int NOT NULL DEFAULT 0,\n\t`isSystem` int NOT NULL DEFAULT 0,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `aiModels_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `generationHistory` ADD `generatorName` varchar(100);\nALTER TABLE `generationHistory` ADD `modelName` varchar(100);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 4197
+}

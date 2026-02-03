@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
+  Bot,
   FileText,
   History,
   LayoutDashboard,
@@ -41,9 +42,12 @@ const menuItems = [
   { icon: TestTube2, label: "测试用例", path: "/test-cases" },
   { icon: Settings, label: "模板管理", path: "/templates" },
   { icon: History, label: "生成历史", path: "/history" },
+  { icon: Bot, label: "AI模型管理", path: "/ai-models" },
 ];
 
-const adminMenuItems = [{ icon: Users, label: "用户管理", path: "/users" }];
+const adminMenuItems = [
+  { icon: Users, label: "用户管理", path: "/users" },
+];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 240;

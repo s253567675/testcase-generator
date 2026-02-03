@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -21,7 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, Clock, History as HistoryIcon, Loader2, Sparkles, Trash2, Wand2, XCircle } from "lucide-react";
+import { Bot, CheckCircle2, Clock, History as HistoryIcon, Loader2, Sparkles, Trash2, User, Wand2, XCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -29,6 +30,8 @@ export default function History() {
   const { user } = useAuth();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
 
   const utils = trpc.useUtils();
   const { data: history, isLoading } = trpc.history.list.useQuery();
@@ -44,11 +47,38 @@ export default function History() {
     },
   });
 
+  const batchDeleteMutation = trpc.history.batchDelete.useMutation({
+    onSuccess: (result) => {
+      toast.success(`成功删除 ${result.count} 条历史记录`);
+      utils.history.list.invalidate();
+      setBatchDeleteDialogOpen(false);
+      setSelectedIds([]);
+    },
+    onError: (error) => {
+      toast.error(error.message || "批量删除失败");
+    },
+  });
+
   const isAdmin = user?.role === "admin";
 
   const openDeleteDialog = (id: number) => {
     setSelectedId(id);
     setDeleteDialogOpen(true);
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (!history) return;
+    if (selectedIds.length === history.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(history.map((item) => item.id));
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -90,12 +120,23 @@ export default function History() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">生成历史</h1>
-        <p className="text-muted-foreground">
-          查看测试用例生成记录
-          {isAdmin && <span className="ml-2 text-xs">(管理员可删除记录)</span>}
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">生成历史</h1>
+          <p className="text-muted-foreground">
+            查看测试用例生成记录
+            {isAdmin && <span className="ml-2 text-xs">(管理员可删除记录)</span>}
+          </p>
+        </div>
+        {isAdmin && selectedIds.length > 0 && (
+          <Button
+            variant="destructive"
+            onClick={() => setBatchDeleteDialogOpen(true)}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            批量删除 ({selectedIds.length})
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
@@ -117,8 +158,18 @@ export default function History() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {isAdmin && (
+                      <TableHead className="w-[50px]">
+                        <Checkbox
+                          checked={selectedIds.length === history.length && history.length > 0}
+                          onCheckedChange={toggleSelectAll}
+                        />
+                      </TableHead>
+                    )}
                     <TableHead className="w-[180px]">生成时间</TableHead>
+                    <TableHead className="w-[120px]">生成人</TableHead>
                     <TableHead className="w-[140px]">生成方式</TableHead>
+                    <TableHead className="w-[120px]">使用模型</TableHead>
                     <TableHead className="w-[100px]">用例数量</TableHead>
                     <TableHead className="w-[100px]">状态</TableHead>
                     <TableHead>错误信息</TableHead>
@@ -126,10 +177,24 @@ export default function History() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {history.map((item) => (
+                  {history.map((item: any) => (
                     <TableRow key={item.id}>
+                      {isAdmin && (
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedIds.includes(item.id)}
+                            onCheckedChange={() => toggleSelect(item.id)}
+                          />
+                        </TableCell>
+                      )}
                       <TableCell className="text-sm">
                         {new Date(item.createdAt).toLocaleString()}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <User className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm">{item.generatorName || "-"}</span>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -138,10 +203,16 @@ export default function History() {
                         </div>
                       </TableCell>
                       <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Bot className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm">{item.modelName || "-"}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
                         <span className="font-medium">{item.caseCount || 0}</span>
                       </TableCell>
                       <TableCell>{getStatusBadge(item.status)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground max-w-[300px] truncate">
+                      <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
                         {item.errorMessage || "-"}
                       </TableCell>
                       {isAdmin && (
@@ -181,6 +252,27 @@ export default function History() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleteMutation.isPending ? "删除中..." : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 批量删除确认对话框 */}
+      <AlertDialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认批量删除</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除选中的 {selectedIds.length} 条生成历史记录吗？此操作不可撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => batchDeleteMutation.mutate({ ids: selectedIds })}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {batchDeleteMutation.isPending ? "删除中..." : "确认删除"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -34,7 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
-import { Download, FileText, Loader2, MoreHorizontal, Plus, Sparkles, Trash2, Upload, Wand2 } from "lucide-react";
+import { Bot, Download, FileText, Loader2, MoreHorizontal, Plus, Sparkles, Trash2, Upload, Wand2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -45,6 +45,7 @@ export default function Documents() {
   const [selectedDocument, setSelectedDocument] = useState<number | null>(null);
   const [generateMode, setGenerateMode] = useState<"template" | "ai">("template");
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const [selectedModelId, setSelectedModelId] = useState<string>("");
   const [uploading, setUploading] = useState(false);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -52,6 +53,8 @@ export default function Documents() {
   const utils = trpc.useUtils();
   const { data: documents, isLoading } = trpc.document.list.useQuery();
   const { data: templates } = trpc.template.list.useQuery();
+  const { data: aiModels } = trpc.aiModel.list.useQuery();
+  const { data: defaultModel } = trpc.aiModel.getDefault.useQuery();
 
   const uploadMutation = trpc.document.upload.useMutation({
     onSuccess: () => {
@@ -89,8 +92,8 @@ export default function Documents() {
   });
 
   const generateAIMutation = trpc.testCase.generateWithAI.useMutation({
-    onSuccess: (data) => {
-      toast.success(`AI成功生成 ${data.count} 条测试用例`);
+    onSuccess: (data: any) => {
+      toast.success(`AI成功生成 ${data.count} 条测试用例 (使用模型: ${data.modelName})`);
       utils.testCase.list.invalidate();
       utils.stats.executionStats.invalidate();
       utils.history.list.invalidate();
@@ -167,11 +170,12 @@ export default function Documents() {
     if (!selectedDocument) return;
 
     if (generateMode === "ai") {
-      generateAIMutation.mutate({ documentId: selectedDocument });
+      const modelId = selectedModelId && selectedModelId !== "default" ? parseInt(selectedModelId) : undefined;
+      generateAIMutation.mutate({ documentId: selectedDocument, modelId });
     } else {
       generateTemplateMutation.mutate({
         documentId: selectedDocument,
-        templateId: selectedTemplate ? parseInt(selectedTemplate) : undefined,
+        templateId: selectedTemplate && selectedTemplate !== "default" ? parseInt(selectedTemplate) : undefined,
       });
     }
   };
@@ -180,6 +184,7 @@ export default function Documents() {
     setSelectedDocument(docId);
     setGenerateMode("template");
     setSelectedTemplate("");
+    setSelectedModelId("");
     setGenerateDialogOpen(true);
   };
 
@@ -424,6 +429,33 @@ export default function Documents() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+
+            {generateMode === "ai" && (
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <Bot className="h-4 w-4" />
+                  选择AI模型
+                </Label>
+                <Select value={selectedModelId} onValueChange={setSelectedModelId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={defaultModel ? `默认: ${defaultModel.name}` : "使用内置模型"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">
+                      {defaultModel ? `默认: ${defaultModel.name}` : "使用内置模型"}
+                    </SelectItem>
+                    {aiModels && aiModels.map((model: any) => (
+                      <SelectItem key={model.id} value={model.id.toString()}>
+                        {model.name} ({model.provider})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  可在"AI模型管理"页面添加更多模型，如DeepSeek、OpenAI等
+                </p>
               </div>
             )}
           </div>

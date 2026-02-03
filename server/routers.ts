@@ -6,20 +6,26 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { sdk } from "./_core/sdk";
 import {
+  createAIModel,
   createDocument,
   createGenerationHistory,
   createTemplate,
   createTestCases,
   createUserWithPassword,
+  deleteAIModel,
   deleteDocument,
   deleteGenerationHistory,
+  deleteGenerationHistoryByIds,
   deleteTemplate,
   deleteTestCase,
   deleteTestCasesByDocumentId,
   deleteTestCasesByIds,
   deleteUser,
   ensureAdminUser,
+  getAIModelById,
+  getAIModelsWithIsolation,
   getAllUsers,
+  getDefaultAIModel,
   getDistinctModulesWithIsolation,
   getDocumentById,
   getDocumentsWithIsolation,
@@ -31,7 +37,9 @@ import {
   getTestCasesByDocumentId,
   getTestCasesWithIsolation,
   searchTestCasesWithIsolation,
+  setDefaultAIModel,
   TestCaseFilter,
+  updateAIModel,
   updateDocument,
   updateGenerationHistory,
   updateTemplate,
@@ -49,6 +57,7 @@ import {
   generateTestCasesWithCustomTemplate,
   generateTestCasesWithTemplate,
 } from "./testCaseGenerator";
+import { generateTestCasesWithCustomModel } from "./customLLM";
 
 // 确保默认管理员存在
 ensureAdminUser();
@@ -164,7 +173,6 @@ export const appRouter = router({
       if (ctx.user.role !== "admin" && document.userId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "无权访问此文档" });
       }
-      // 如果有fileUrl直接返回，否则尝试生成签名URL
       if (document.fileUrl) {
         return { url: document.fileUrl, fileName: document.fileName };
       }
@@ -179,7 +187,7 @@ export const appRouter = router({
         z.object({
           fileName: z.string(),
           fileType: z.string(),
-          fileData: z.string(), // base64
+          fileData: z.string(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -196,7 +204,6 @@ export const appRouter = router({
           status: "uploaded",
         });
 
-        // 异步解析文档
         (async () => {
           try {
             await updateDocument(documentId, { status: "parsing" });
@@ -307,7 +314,6 @@ export const appRouter = router({
     batchDelete: protectedProcedure
       .input(z.object({ ids: z.array(z.number()).min(1) }))
       .mutation(async ({ ctx, input }) => {
-        // 验证权限
         const allCases = await getTestCasesWithIsolation(ctx.user.id, ctx.user.role === "admin");
         const allowedIds = allCases.map((tc) => tc.id);
         const validIds = input.ids.filter((id) => allowedIds.includes(id));
@@ -322,8 +328,8 @@ export const appRouter = router({
     import: protectedProcedure
       .input(
         z.object({
-          fileData: z.string(), // base64
-          documentId: z.number().optional(), // 可选关联到某个需求文档
+          fileData: z.string(),
+          documentId: z.number().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -366,6 +372,7 @@ export const appRouter = router({
           documentId: input.documentId,
           mode: "template",
           status: "pending",
+          generatorName: ctx.user.name || ctx.user.openId,
         });
 
         try {
@@ -411,7 +418,10 @@ export const appRouter = router({
         }
       }),
     generateWithAI: protectedProcedure
-      .input(z.object({ documentId: z.number() }))
+      .input(z.object({ 
+        documentId: z.number(),
+        modelId: z.number().optional(), // 可选指定AI模型
+      }))
       .mutation(async ({ ctx, input }) => {
         const document = await getDocumentById(input.documentId);
         if (!document) {
@@ -424,17 +434,46 @@ export const appRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "文档尚未解析完成" });
         }
 
+        // 获取AI模型配置
+        let aiModel = null;
+        let modelName = "内置模型";
+        if (input.modelId) {
+          aiModel = await getAIModelById(input.modelId);
+          if (aiModel) {
+            modelName = aiModel.name;
+          }
+        } else {
+          // 尝试获取用户的默认模型
+          aiModel = await getDefaultAIModel(ctx.user.id);
+          if (aiModel) {
+            modelName = aiModel.name;
+          }
+        }
+
         const historyId = await createGenerationHistory({
           userId: ctx.user.id,
           documentId: input.documentId,
           mode: "ai",
           status: "pending",
+          generatorName: ctx.user.name || ctx.user.openId,
+          modelName: modelName,
         });
 
         try {
-          const generatedCases = await generateTestCasesWithAI(document.parsedContent, document.fileName);
+          let generatedCases;
+          if (aiModel) {
+            // 使用自定义模型
+            generatedCases = await generateTestCasesWithCustomModel(
+              aiModel,
+              document.parsedContent,
+              document.fileName
+            );
+          } else {
+            // 使用内置模型
+            generatedCases = await generateTestCasesWithAI(document.parsedContent, document.fileName);
+          }
 
-          const testCasesToInsert = generatedCases.map((tc) => ({
+          const testCasesToInsert = generatedCases.map((tc: any) => ({
             userId: ctx.user.id,
             documentId: input.documentId,
             caseNumber: tc.caseNumber,
@@ -451,7 +490,7 @@ export const appRouter = router({
           await createTestCases(testCasesToInsert);
           await updateGenerationHistory(historyId, { status: "completed", caseCount: generatedCases.length });
 
-          return { success: true, count: generatedCases.length };
+          return { success: true, count: generatedCases.length, modelName };
         } catch (error) {
           await updateGenerationHistory(historyId, {
             status: "failed",
@@ -531,7 +570,7 @@ export const appRouter = router({
         return { id, success: true };
       }),
     import: protectedProcedure
-      .input(z.object({ fileData: z.string() })) // base64
+      .input(z.object({ fileData: z.string() }))
       .mutation(async ({ ctx, input }) => {
         const buffer = Buffer.from(input.fileData, "base64");
         const importedTemplate = await importTemplateFromExcel(buffer);
@@ -608,6 +647,113 @@ export const appRouter = router({
       }
       await deleteGenerationHistory(input.id);
       return { success: true };
+    }),
+    batchDelete: protectedProcedure
+      .input(z.object({ ids: z.array(z.number()).min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "只有管理员可以删除历史记录" });
+        }
+        await deleteGenerationHistoryByIds(input.ids);
+        return { success: true, count: input.ids.length };
+      }),
+  }),
+
+  aiModel: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const isAdmin = ctx.user.role === "admin";
+      return getAIModelsWithIsolation(ctx.user.id, isAdmin);
+    }),
+    get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ ctx, input }) => {
+      const model = await getAIModelById(input.id);
+      if (!model) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "模型不存在" });
+      }
+      if (ctx.user.role !== "admin" && model.userId !== ctx.user.id && model.isSystem !== 1) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "无权访问" });
+      }
+      // 隐藏API Key的部分内容
+      return {
+        ...model,
+        apiKey: model.apiKey.substring(0, 8) + "..." + model.apiKey.substring(model.apiKey.length - 4),
+      };
+    }),
+    create: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(1, "名称不能为空"),
+          provider: z.string().min(1, "提供商不能为空"),
+          modelId: z.string().min(1, "模型ID不能为空"),
+          apiUrl: z.string().url("请输入有效的API地址"),
+          apiKey: z.string().min(1, "API Key不能为空"),
+          isDefault: z.number().optional(),
+          isSystem: z.number().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const id = await createAIModel({
+          userId: ctx.user.id,
+          name: input.name,
+          provider: input.provider,
+          modelId: input.modelId,
+          apiUrl: input.apiUrl,
+          apiKey: input.apiKey,
+          isDefault: input.isDefault || 0,
+          isSystem: ctx.user.role === "admin" ? input.isSystem || 0 : 0,
+        });
+        return { id, success: true };
+      }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          name: z.string().optional(),
+          provider: z.string().optional(),
+          modelId: z.string().optional(),
+          apiUrl: z.string().url().optional(),
+          apiKey: z.string().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const model = await getAIModelById(input.id);
+        if (!model) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "模型不存在" });
+        }
+        if (ctx.user.role !== "admin" && model.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "无权修改" });
+        }
+        const { id, ...data } = input;
+        await updateAIModel(id, data);
+        return { success: true };
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+      const model = await getAIModelById(input.id);
+      if (!model) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "模型不存在" });
+      }
+      if (ctx.user.role !== "admin" && model.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "无权删除" });
+      }
+      await deleteAIModel(input.id);
+      return { success: true };
+    }),
+    setDefault: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const model = await getAIModelById(input.id);
+        if (!model) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "模型不存在" });
+        }
+        await setDefaultAIModel(ctx.user.id, input.id);
+        return { success: true };
+      }),
+    getDefault: protectedProcedure.query(async ({ ctx }) => {
+      const model = await getDefaultAIModel(ctx.user.id);
+      if (!model) return null;
+      return {
+        ...model,
+        apiKey: model.apiKey.substring(0, 8) + "..." + model.apiKey.substring(model.apiKey.length - 4),
+      };
     }),
   }),
 

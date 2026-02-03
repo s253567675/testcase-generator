@@ -3,6 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import AIModels from "./pages/AIModels";
 import Dashboard from "./pages/Dashboard";
 import Documents from "./pages/Documents";
 import History from "./pages/History";
@@ -40,6 +41,11 @@ function Router() {
       <Route path="/history">
         <DashboardLayout>
           <History />
+        </DashboardLayout>
+      </Route>
+      <Route path="/ai-models">
+        <DashboardLayout>
+          <AIModels />
         </DashboardLayout>
       </Route>
       <Route path="/users">
