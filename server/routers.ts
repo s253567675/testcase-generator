@@ -95,7 +95,7 @@ export const appRouter = router({
           username: z.string().min(3, "用户名至少3个字符"),
           password: z.string().min(6, "密码至少6个字符"),
           name: z.string().optional(),
-          email: z.string().email().optional(),
+          email: z.string().optional(),
           role: z.enum(["user", "admin"]).default("user"),
         })
       )
@@ -110,7 +110,7 @@ export const appRouter = router({
         z.object({
           id: z.number(),
           name: z.string().optional(),
-          email: z.string().email().optional(),
+          email: z.string().optional(),
           role: z.enum(["user", "admin"]).optional(),
           status: z.enum(["active", "disabled"]).optional(),
         })
