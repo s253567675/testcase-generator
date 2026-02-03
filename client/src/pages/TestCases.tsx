@@ -117,10 +117,10 @@ export default function TestCases() {
   const { data: documents } = trpc.testCase.getDocuments.useQuery();
   const { data: testCases, isLoading } = trpc.testCase.search.useQuery({
     keyword: keyword || undefined,
-    module: moduleFilter || undefined,
-    priority: priorityFilter || undefined,
-    executionStatus: statusFilter || undefined,
-    documentId: documentFilter ? parseInt(documentFilter) : undefined,
+    module: moduleFilter && moduleFilter !== "all" ? moduleFilter : undefined,
+    priority: priorityFilter && priorityFilter !== "all" ? priorityFilter : undefined,
+    executionStatus: statusFilter && statusFilter !== "all" ? statusFilter : undefined,
+    documentId: documentFilter && documentFilter !== "all" ? parseInt(documentFilter) : undefined,
   });
 
   const updateMutation = trpc.testCase.update.useMutation({

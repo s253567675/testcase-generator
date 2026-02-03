@@ -9,6 +9,9 @@ export interface ImportedTestCase {
   expectedResult: string;
   priority: "P0" | "P1" | "P2" | "P3";
   caseType: "functional" | "boundary" | "exception" | "performance";
+  executionStatus?: "pending" | "passed" | "failed";
+  executionResult?: string;
+  generationMode?: "ai" | "template" | "import";
 }
 
 export interface ImportedTemplate {
@@ -50,6 +53,37 @@ const caseTypeMap: Record<string, "functional" | "boundary" | "exception" | "per
   异常: "exception",
   性能: "performance",
 };
+
+const executionStatusMap: Record<string, "pending" | "passed" | "failed"> = {
+  pending: "pending",
+  passed: "passed",
+  failed: "failed",
+  待执行: "pending",
+  通过: "passed",
+  失败: "failed",
+  未执行: "pending",
+  成功: "passed",
+};
+
+const generationModeMap: Record<string, "ai" | "template" | "import"> = {
+  ai: "ai",
+  template: "template",
+  import: "import",
+  AI生成: "ai",
+  模板生成: "template",
+  导入: "import",
+  手动: "import",
+};
+
+function parseExecutionStatus(str: string): "pending" | "passed" | "failed" | undefined {
+  if (!str) return undefined;
+  return executionStatusMap[str] || executionStatusMap[str.toLowerCase()] || undefined;
+}
+
+function parseGenerationMode(str: string): "ai" | "template" | "import" | undefined {
+  if (!str) return undefined;
+  return generationModeMap[str] || generationModeMap[str.toLowerCase()] || undefined;
+}
 
 function getCellValue(cell: ExcelJS.Cell): string {
   if (cell.value === null || cell.value === undefined) {
@@ -94,13 +128,16 @@ export async function importTestCasesFromExcel(buffer: Buffer | ArrayBuffer): Pr
   const columnMap: Record<string, number> = {};
   const headerNames = [
     { keys: ["用例编号", "编号", "caseNumber", "case_number", "id"], field: "caseNumber" },
-    { keys: ["模块", "module", "功能模块"], field: "module" },
+    { keys: ["所属模块", "模块", "module", "功能模块"], field: "module" },
     { keys: ["测试场景", "场景", "scenario", "用例名称", "名称", "title"], field: "scenario" },
     { keys: ["前置条件", "precondition", "前提条件"], field: "precondition" },
     { keys: ["测试步骤", "步骤", "steps", "操作步骤"], field: "steps" },
     { keys: ["预期结果", "expectedResult", "expected_result", "期望结果"], field: "expectedResult" },
     { keys: ["优先级", "priority", "级别"], field: "priority" },
     { keys: ["用例类型", "类型", "caseType", "case_type", "测试类型"], field: "caseType" },
+    { keys: ["执行状态", "executionStatus", "execution_status", "状态"], field: "executionStatus" },
+    { keys: ["执行结果", "executionResult", "execution_result", "结果"], field: "executionResult" },
+    { keys: ["生成方式", "generationMode", "generation_mode", "来源"], field: "generationMode" },
   ];
 
   headerRow.eachCell((cell, colNumber) => {
@@ -136,6 +173,10 @@ export async function importTestCasesFromExcel(buffer: Buffer | ArrayBuffer): Pr
     const caseTypeStr = columnMap.caseType ? getCellValue(row.getCell(columnMap.caseType)).trim() : "";
     const stepsStr = columnMap.steps ? getCellValue(row.getCell(columnMap.steps)) : "";
 
+    const executionStatusStr = columnMap.executionStatus ? getCellValue(row.getCell(columnMap.executionStatus)).trim() : "";
+    const executionResultStr = columnMap.executionResult ? getCellValue(row.getCell(columnMap.executionResult)).trim() : "";
+    const generationModeStr = columnMap.generationMode ? getCellValue(row.getCell(columnMap.generationMode)).trim() : "";
+
     testCases.push({
       caseNumber: columnMap.caseNumber ? getCellValue(row.getCell(columnMap.caseNumber)).trim() : undefined,
       module: columnMap.module ? getCellValue(row.getCell(columnMap.module)).trim() : undefined,
@@ -145,6 +186,9 @@ export async function importTestCasesFromExcel(buffer: Buffer | ArrayBuffer): Pr
       expectedResult: expectedResult || "无",
       priority: priorityMap[priorityStr] || "P2",
       caseType: caseTypeMap[caseTypeStr] || "functional",
+      executionStatus: parseExecutionStatus(executionStatusStr),
+      executionResult: executionResultStr || undefined,
+      generationMode: parseGenerationMode(generationModeStr),
     });
   }
 
